@@ -1,0 +1,25 @@
+LIBRARY
+EXPORTS
+    ADL_Main_Control_Create
+    ADL_Main_Control_Destroy
+    ADL_Main_Control_Refresh
+    ADL_Main_Control_IsFunctionValid
+    ADL_Adapter_NumberOfAdapters_Get
+    ADL_Adapter_AdapterInfo_Get
+    ADL_Adapter_Active_Get
+    ADL_Adapter_ID_Get
+    ADL_Adapter_Aspects_Get
+    ADL_Adapter_Primary_Get
+    ADL_Display_NumberOfDisplays_Get
+    ADL_Display_DisplayInfo_Get
+    ADL_Display_SLSMapIndex_Get
+    ADL_Display_SLSMapConfig_Get
+    ADL_Display_Modes_Get
+    ADL_Display_DisplayMapConfig_Get
+    ADL_Graphics_Versions_Get
+    ADL_Display_EdidData_Get
+    ADL2_Main_Control_Create
+    ADL2_Main_Control_Destroy
+    ADL2_Adapter_NumberOfAdapters_Get
+    ADL2_Adapter_AdapterInfo_Get
+    ADL2_Adapter_Active_Get

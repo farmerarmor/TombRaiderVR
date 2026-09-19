@@ -1,0 +1,9 @@
+LIBRARY
+EXPORTS
+    AmdDxExtCreate
+    AmdDxExtCreate11
+    AmdQbProxy_SetStereoActive
+    AmdQbProxy_IsStereoActive
+    AmdQbProxy_SetOutputMode
+    AmdQbProxy_SetSeparation
+    AmdQbProxy_SetConvergence
