@@ -4,6 +4,7 @@
 #include "GameplayCamera.h"
 #include "ScriptedOrbit.h"
 #include "AutoView.h"
+#include "HeadAim.h"
 #include <MinHook.h>
 #include <mutex>
 #include <cstdio>
@@ -34,6 +35,13 @@ Transport::Vector playerPosition{};
 uint64_t playerSampleTime{};
 std::atomic<uint64_t> firstPersonScenes{},playerSamples{};
 bool firstPersonHooks=false;
+bool headAim=false,headAimSupported=false;
+using AimGet=float(__thiscall*)(void*);
+using AimSet=void(__thiscall*)(void*,float,float,int);
+AimGet aimYaw{},aimPitch{};
+AimSet setAimYaw{},setAimPitch{};
+std::atomic<uint64_t> headAimUpdates{};
+float lastHeadYaw{},lastHeadPitch{};
 float hudScale=1.f;
 bool disableScriptedCamera=false;
 bool autoSwitch=true,cinematicReads=false,cutscenesInVR=false;
@@ -106,6 +114,7 @@ void LoadConfig() {
     GetPrivateProfileStringW(L"VR",L"HUDScale",L"1.0",value,64,path);
     wchar_t* end{};float parsed=wcstof(value,&end);
     hudScale=end!=value && !*end && std::isfinite(parsed)?std::clamp(parsed,.25f,2.f):1.f;
+    headAim=GetPrivateProfileIntW(L"VR",L"HeadAim",0,path)!=0;
     cutscenesInVR=GetPrivateProfileIntW(L"VR",L"InGameCutscenesInVR",0,path)!=0;
     autoSwitch=GetPrivateProfileIntW(L"VR",L"AutoSwitchVR",1,path)!=0;
     disableScriptedCamera=GetPrivateProfileIntW(L"VR",L"DisableScriptedCamera",0,path)!=0;
@@ -139,7 +148,25 @@ void __fastcall ExplorationHook(void* self,void*,float dt,uint32_t arg) {
 }
 void __fastcall AimHook(void* self,void*,float dt,uint32_t arg) {
     {std::lock_guard lock(cameraMutex);aimTickTime=GetTickCount64();}
-    SamplePlayer(self);aimOriginal(self,dt,arg);SamplePlayer(self);
+    SamplePlayer(self);
+    {
+        std::lock_guard lock(cameraMutex);
+        if(headAim && headAimSupported && requested && nextTracking.valid && referenceValid &&
+           GameFocused() && !CinematicActive() && dt>0 && dt<.25f &&
+           playerSampleTime && GetTickCount64()-playerSampleTime<100) {
+            float yaw=aimYaw(self),pitch=aimPitch(self);
+            auto c=static_cast<unsigned char*>(self);
+            float low=*reinterpret_cast<float*>(c+0x1d8),high=*reinterpret_cast<float*>(c+0x1d4);
+            if(std::isfinite(yaw) && std::isfinite(pitch) && std::isfinite(low) && std::isfinite(high) &&
+               low<=high && low>=-3.2f && high<=3.2f) {
+                const auto result=HeadAim::Steer(yaw,pitch,low,high,reference,nextTracking.head);
+                setAimYaw(self,result.yaw,0,0);setAimPitch(self,result.pitch,0,0);
+                reference=result.reference;
+                lastHeadYaw=result.yaw;lastHeadPitch=result.pitch;++headAimUpdates;
+            }
+        }
+    }
+    aimOriginal(self,dt,arg);SamplePlayer(self);
 }
 void __fastcall BuildCameraHook(void* self,void*,void* effects) {
     auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress())-gameBase;
@@ -204,7 +231,7 @@ void* __fastcall CreateHook(void* self,void*,void* viewport,void* target,void* d
             auto v=static_cast<float*>(viewport);
             if(v[10]<=0 && !target) {
                 snap={nextTracking,false,true};
-                if(GetTickCount64()-aimTickTime<100 && GetTickCount64()-aimingViewTime<100 && (GetAsyncKeyState(VK_RBUTTON)&0x8000)) {
+                if(GetTickCount64()-aimTickTime<100 && GetTickCount64()-aimingViewTime<100) {
                     snap.aimUi=true;snap.aimWorld=aimingView.aimWorld;snap.headWorld=aimingView.headWorld;
                     snap.aimFov=aimingView.aimFov;snap.aimAspect=aimingView.aimAspect;snap.tracking=aimingView.tracking;
                 }
@@ -348,6 +375,18 @@ void Install() {
         if(!memcmp(build,buildPrefix,sizeof(buildPrefix)) && MH_CreateHook(build,&BuildCameraHook,reinterpret_cast<void**>(&buildCameraOriginal))==MH_OK) {
             if(MH_EnableHook(build)!=MH_OK){MH_RemoveHook(build);disableScriptedCamera=false;}
         } else disableScriptedCamera=false;
+        // Exact-build native aim accessors: getters interpolate current aim;
+        // setters use radians, zero blend duration, and native pitch limits.
+        const unsigned char yawGetPrefix[]={0x81,0xc1,0xf4,0x07,0,0,0xe9};
+        const unsigned char pitchGetPrefix[]={0x55,0x8b,0xec,0x51,0x56,0x8b,0xf1,0x8b,0x86,0x14,0x08,0,0};
+        const unsigned char yawSetPrefix[]={0x55,0x8b,0xec,0xff,0x75,0x10,0xf3,0x0f,0x10,0x45,0x0c,0x81,0xc1,0xf4,0x07,0,0};
+        const unsigned char pitchSetPrefix[]={0x55,0x8b,0xec,0x51,0xf3,0x0f,0x10,0x45,0x08,0x56,0x8b,0xf1};
+        headAimSupported=!memcmp(reinterpret_cast<void*>(base+0x5188c0),yawGetPrefix,sizeof(yawGetPrefix)) &&
+            !memcmp(reinterpret_cast<void*>(base+0x5187e0),pitchGetPrefix,sizeof(pitchGetPrefix)) &&
+            !memcmp(reinterpret_cast<void*>(base+0x523940),yawSetPrefix,sizeof(yawSetPrefix)) &&
+            !memcmp(reinterpret_cast<void*>(base+0x523740),pitchSetPrefix,sizeof(pitchSetPrefix));
+        if(headAimSupported){aimYaw=reinterpret_cast<AimGet>(base+0x5188c0);aimPitch=reinterpret_cast<AimGet>(base+0x5187e0);
+            setAimYaw=reinterpret_cast<AimSet>(base+0x523940);setAimPitch=reinterpret_cast<AimSet>(base+0x523740);}
         auto exploration=reinterpret_cast<void*>(base+0x51f820);
         auto aim=reinterpret_cast<void*>(base+0x51e0f0);
         auto position=reinterpret_cast<void*>(base+0x51a040);
@@ -360,7 +399,8 @@ void Install() {
             if(!firstPersonHooks){if(a){MH_DisableHook(exploration);MH_RemoveHook(exploration);}if(b){MH_DisableHook(aim);MH_RemoveHook(aim);}}
         }
     }
-    FILE* f{};if(!fopen_s(&f,"TombRaiderVR-camera.log","a")) {
+    FILE* f{};if(!fopen_s(&f,"TombRaiderVR-camera.log","a")){fprintf(f,"HeadAim=%d supported=%d aimUI=native-controller-state\n",headAim,headAimSupported && firstPersonHooks);fclose(f);}
+    if(!fopen_s(&f,"TombRaiderVR-camera.log","a")) {
         fprintf(f,"TombRaiderVR look-around prototype: supported=%d sceneHooks=%d; starts in stereo screen, F6 toggles tracking, F9 recenters\n",supported,ok);fclose(f);
     }
     if(!fopen_s(&f,"TombRaiderVR-camera.log","a")){fprintf(f,"F7 first-person prototype: hooks=%d eyeHeight=160 forwardOffset=10\n",firstPersonHooks);fclose(f);}
@@ -394,6 +434,7 @@ Transport::RenderInfo OnPresent(uint64_t id, bool capture) {
         if(f9&&!f9Down)referenceValid=false;
         f6Down=f6;f7Down=f7;f9Down=f9;
         if(!reader.Read(channel,nextTracking,GetTickCount64())){nextTracking={};referenceValid=false;}
+        if(capture){FILE* f{};if(!fopen_s(&f,"TombRaiderVR-camera.log","a")){fprintf(f,"HeadAim=%d supported=%d updates=%llu yaw=%g pitch=%g aimAge=%llu\n",headAim,headAimSupported,headAimUpdates.load(),lastHeadYaw,lastHeadPitch,aimTickTime?GetTickCount64()-aimTickTime:~0ull);fclose(f);}}
         if(capture){FILE* f{};if(!fopen_s(&f,"TombRaiderVR-camera.log","a")){fprintf(f,"tracking requested=%d valid=%u completedMode=%u eyes=%u pose=%llu\n",requested,nextTracking.valid,completed.mode,completed.eyeMask,completed.tracking.id);fclose(f);}}
         if(capture){FILE* f{};if(!fopen_s(&f,"TombRaiderVR-camera.log","a")){fprintf(f,"firstPerson=%d hooks=%d samples=%llu scenes=%llu sampleAgeMs=%llu root=%g,%g,%g\n",firstPerson,firstPersonHooks,playerSamples.load(),firstPersonScenes.load(),playerSampleTime?GetTickCount64()-playerSampleTime:~0ull,playerPosition.x,playerPosition.y,playerPosition.z);fclose(f);}}
     }

@@ -20,7 +20,7 @@ Experimental native stereo OpenXR mod for **Tomb Raider (2013)** on Windows. Bot
 3. Connect your headset before launching the game. Enable Stereo 3D in the game's graphics settings.
 4. Load a save. Gameplay automatically enters VR; face forward and press **F9** to recenter if needed.
 
-The mod uses the current OpenXR recommended eye resolution at launch. Restart the game after changing runtime resolution settings. The installer backs up replaced files and preserves an existing INI. It does not modify the game executable or your global OpenXR runtime.
+The mod uses the current OpenXR recommended eye resolution at launch. Restart the game after changing runtime resolution settings. The installer backs up replaced files and preserves an existing INI. When upgrading, add `HeadAim=1` under `[VR]` to enable head aiming; if omitted, it defaults to `0`. It does not modify the game executable or your global OpenXR runtime.
 
 To restore the files from before the latest installation, close the game and VR host, then run `uninstall.ps1 -GamePath "your game folder"`. The script refuses to overwrite files modified after installation. Logs and backups remain in the game folder.
 
@@ -44,18 +44,20 @@ HUDScale=1.0
 DisableScriptedCamera=0
 AutoSwitchVR=1
 InGameCutscenesInVR=0
+HeadAim=0
 ```
 
 - **HUDScale:** immersive HUD/menu size, from `0.25` to `2.0`. `0.75` is smaller; `1.25` is larger. Does not resize the virtual screen or aiming reticle projection.
 - **DisableScriptedCamera:** set to `1` to reduce scripted camera overrides and shake. Normal mouse/stick orbit remains available, with fallback orbit when the native camera stalls. Experimental and imperfect; it does not skip events or enable gameplay actions during cutscenes.
 - **AutoSwitchVR:** `1` enters VR during gameplay and uses the screen for cutscenes. Gameplay returns to VR after a short stabilization delay. `0` leaves switching to F6.
 - **InGameCutscenesInVR:** with automatic switching enabled, `1` keeps in-engine cutscenes in VR. The default `0` shows them on the screen. Prerecorded movies still use the screen with either setting.
+- **HeadAim:** `1` adds headset yaw/pitch to the native aim controller while aiming in immersive VR, steering the weapon and reticle together. Mouse/stick aim remains available. `0` (default) keeps input-based weapon aiming with the reticle projected from the native aim direction for both mouse and gamepad.
 
 ## Status and limitations
 
-Headset testing confirmed native stereo framing, colors, automatic resolution, HUD/pause/TAB menus, mouse bow aiming, and automatic gameplay/cutscene switching. The optional in-engine cutscene VR setting has passed transition tests; broader game coverage remains limited.
+Headset testing confirmed native stereo framing, colors, automatic resolution, HUD/pause/TAB menus, mouse/gamepad bow aiming, optional head aiming, and automatic gameplay/cutscene switching. The optional in-engine cutscene VR setting has passed transition tests; broader game coverage remains limited.
 
-First-person uses a fixed standing camera above Lara's head. It does not follow crouching or animated head height, and does not hide Lara's head/body. Near-target aiming can have parallax because the camera origin differs from the normal gameplay camera. Headset movement changes the view; aim remains controlled by the game's normal inputs. The reticle correction targets right-mouse bow aiming; gamepad aiming needs further testing.
+First-person uses a fixed standing camera above Lara's head. It does not follow crouching or animated head height, and does not hide Lara's head/body. Near-target aiming can have parallax because the camera origin differs from the normal gameplay camera. With `HeadAim=0`, headset movement changes the view while weapon aim stays controlled by mouse/stick. The reticle correction uses the native aiming state for both mouse and gamepad. Both modes have been confirmed working in-game.
 
 Some graphics settings caused bright flashes during testing; changing graphics settings resolved them, but the specific setting was not isolated. Scripted camera suppression will not eliminate every camera movement.
 

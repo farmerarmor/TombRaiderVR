@@ -1,5 +1,6 @@
 #include "CameraMath.h"
 #include "AutoView.h"
+#include "HeadAim.h"
 #include "GameplayCamera.h"
 #include "ScriptedOrbit.h"
 #include "DirectionConfig.h"
@@ -15,6 +16,27 @@ bool Near(float a,float b){return std::abs(a-b)<0.0001f;}
 #include "GamepadChecks.h"
 int main(int argc,char** argv) {
     CheckGamepadMapping();
+    {
+        Transport::Pose ref{};ref.orientation.w=1;
+        for(float yaw: {0.f,1.2f,-3.1f})for(float pitch: {0.f,.6f,-.6f}) {
+            Transport::Pose head=ref;
+            head.orientation=CameraMath::Multiply(Transport::Quaternion{0,std::sin(.2f),0,std::cos(.2f)},CameraMath::Multiply(Transport::Quaternion{std::sin(.1f),0,0,std::cos(.1f)},{0,0,std::sin(.15f),std::cos(.15f)}));
+            auto before=HeadAim::Basis(yaw,pitch);
+            auto expected=CameraMath::HeadWorld(before,ref,head,0);
+            auto result=HeadAim::Steer(yaw,pitch,-1.5f,1.5f,ref,head);
+            auto native=HeadAim::Basis(result.yaw,result.pitch);
+            for(int i=8;i<11;i++)Check(Near(native.m[i],expected.m[i]),"native head aim follows rendered forward ray");
+            auto rendered=CameraMath::HeadWorld(native,result.reference,head,0);
+            for(int i=0;i<12;i++)Check(Near(rendered.m[i],expected.m[i]),"head aim consumed once and roll retained");
+            auto still=HeadAim::Steer(result.yaw,result.pitch,-1.5f,1.5f,result.reference,head);
+            Check(Near(still.yaw,result.yaw) && Near(still.pitch,result.pitch),"stationary head does not accumulate aim drift");
+        }
+        Transport::Pose head=ref;head.orientation={std::sin(.7f),0,0,std::cos(.7f)};
+        auto limited=HeadAim::Steer(0,0,-.5f,.5f,ref,head);
+        Check(Near(limited.pitch,-.5f),"native pitch limit respected");
+        auto neutral=HeadAim::Steer(1,.2f,-1.5f,1.5f,ref,ref);
+        Check(Near(neutral.yaw,1) && Near(neutral.pitch,.2f),"recenter introduces no aim delta");
+    }
     {
         AutoView view;bool immersive=false;
         Check(view.Update(1000,false,true,immersive,false,true) && immersive,"optional in-engine cinematic VR without gameplay ticks");
